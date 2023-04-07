@@ -1,0 +1,11 @@
+<!doctype html>
+<meta name="referrer" content="no-referrer" />
+<body>
+  <pre>Version: ___SHA256___</pre>
+  <script>
+    const ws = new WebSocket('ws://localhost:9877/');
+    ws.onmessage = (e) => {
+      console.log('Message from server:', e.data)
+    }
+  </script>
+</body>
