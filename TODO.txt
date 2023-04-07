@@ -1,0 +1,6 @@
+Ping and time skew and page uptime (and page active status) should be on the main page.
+Reloads via the current version.
+Env vars for name resolution.
+Two-way pings.
+Handle multiple opened pages on the server side.
+Handle multiple opened pages on the client side.

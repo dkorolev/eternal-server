@@ -1,11 +1,54 @@
 <!doctype html>
-<meta name="referrer" content="no-referrer" />
+<meta name='referrer' content='no-referrer' />
 <body>
   <pre>Version: ___SHA256___</pre>
+  <pre><div id='browser'>Browser: ...</div></pre>
+  <pre><div id='nonce'>Nonce: ...</div></pre>
   <script>
-    const ws = new WebSocket('ws://localhost:9877/');
-    ws.onmessage = (e) => {
-      console.log('Message from server:', e.data)
-    }
+    let n = 0;
+    const version = '___SHA256___';
+    document.getElementById('browser').innerText = 'Browser: ' + navigator.userAgent;
+    const computeSHA256 = async (text) => {
+      view = new DataView(await crypto.subtle.digest('SHA-256', (new TextEncoder('utf-8')).encode(text)));
+      let hexes = [];
+      for (let i = 0; i < view.byteLength && i < 8; i += 4) {
+        hexes.push(('00000000' + view.getUint32(i).toString(16)).slice(-8));
+      }
+      return hexes.join('');
+    };
+    let pingTime = 0;
+    const getPersistedNonce = async () => {
+      const nonce = localStorage.getItem('NONCE');
+      if (nonce !== null) {
+        return {nonce, cached: true};
+      } else {
+        const newNonce = await computeSHA256(crypto.getRandomValues(new Uint32Array(16)).join('-'));
+        localStorage.setItem('NONCE', newNonce);
+        return {nonce: newNonce, cached: false};
+      }
+    };
+    getPersistedNonce().then((nonce) => {
+      document.getElementById('nonce').innerText = 'Nonce: ' + nonce.nonce + (!nonce.cached ? ' (freshly generated)' : '');
+      const ws = new WebSocket('ws://localhost:9877/');
+      ws.onopen = () => {
+        pingTime = Date.now();
+        ws.send(JSON.stringify({nonce: nonce.nonce, cmd: 'ping', n: ++n, us: navigator.userAgent, ts: pingTime}));
+      };
+      ws.onmessage = (e) => {
+        try {
+          const json = JSON.parse(e.data);
+          if (typeof json === 'object') {
+            if (json.cmd === 'pong') {
+              const now = Date.now();
+              console.log(`Ping: ${now - pingTime}ms, time skew: ${json.ts - pingTime}ms.`);
+            } else if (json.cmd === 'reload') {
+              location.reload();
+            }
+          }
+        } catch (ex) {
+          console.log(`Malformed message from server: ${JSON.stringify(e.data)}.`);
+        }
+      }
+    });
   </script>
 </body>

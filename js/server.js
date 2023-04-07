@@ -12,16 +12,47 @@ const signalHandler = async (signal) => {
 process.on('SIGINT', signalHandler);
 process.on('SIGTERM', signalHandler);
 
+// TODO(dkorolev): Use a random ID per opened page! In case the page is opened more than once.
+let connectedClients = {};
+
+let htmlContent = '';
+let htmlHash = '';
+let htmlLastModified = 0;
+const htmlPath = '/html/index.html';
+
+const rereadHtml = (lm) => {
+  htmlLastModified = lm;
+  const originalHtmlContent = String(fs.readFileSync(htmlPath));
+  const newHtmlHash = crypto.createHash('sha256').update(originalHtmlContent).digest('hex').substr(0, 16);
+  if (newHtmlHash != htmlHash) {
+    if (htmlHash === '') {
+      console.log(`the html sha256 is ${newHtmlHash}`);
+    } else {
+      console.log(`the html sha256 changed from ${htmlHash} to ${newHtmlHash}`);
+    }
+    htmlHash = newHtmlHash;
+    htmlContent = originalHtmlContent.replace(/___SHA256___/g, htmlHash);
+    Object.keys(connectedClients).forEach((k) => {
+      console.log(`notifying client ${k}`);
+      connectedClients[k].send(JSON.stringify({cmd: 'reload', sha256: newHtmlHash}));
+    });
+  }
+};
+
+rereadHtml(fs.statSync(htmlPath).mtimeMs);
+
+setInterval(() => {
+  const ts = fs.statSync(htmlPath).mtimeMs;
+  if (ts != htmlLastModified) {
+    rereadHtml(ts);
+  }
+}, 250);
+
 const httpPort = process.env.ETERNAL_SERVER_HTTP_PORT || 9876;
 const wsPort = process.env.ETERNAL_SERVER_WS_PORT || 9877;
 
 const app = express();
 app.use(cors({ origin: '*' }));
-
-const originalHtmlContent = String(fs.readFileSync('/html/index.html'));
-const sha256 = crypto.createHash('sha256').update(originalHtmlContent).digest('hex');
-
-const htmlContent = originalHtmlContent.replace(/___SHA256___/g, sha256);
 
 app.get('/', (_, res) => {
   res.writeHead(200, {'Content-Type': 'text/html'});
@@ -35,15 +66,20 @@ const wsServer = new WebSocket.Server({port: wsPort});
 console.log(`ws listening on localhost:${wsPort}`);
 
 wsServer.on('connection', ws => {
-  let t = 0;
-  ws.send('connected');
-  let interval = setInterval(() => {
-    ws.send('timer: ' + ++t);
-  }, 100);
+  let saveNonce = '';
   ws.on('close', () => {
-    clearInterval(interval);
+    if (saveNonce !== '') {
+      delete connectedClients[saveNonce];
+    }
   });
-  ws.on('message', msg => {
-    console.log(ws.send('echoing: ' + msg));
+  ws.on('message', (msg) => {
+    const json = JSON.parse(msg);
+    if (typeof json === 'object') {
+      if (json.cmd === 'ping') {
+        saveNonce = json.nonce;
+        connectedClients[json.nonce] = ws;
+        ws.send(JSON.stringify({cmd: 'pong', n: json.n, ts: Date.now()}));
+      }
+    }
   });
 });
