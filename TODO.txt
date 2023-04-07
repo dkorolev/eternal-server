@@ -1,5 +1,6 @@
 Ping and time skew and page uptime (and page active status) should be on the main page.
 Reloads via the current version.
+Track the IP address of connected clients; perhaps even their locations.
 Env vars for name resolution.
 Two-way pings.
 Handle multiple opened pages on the server side.
