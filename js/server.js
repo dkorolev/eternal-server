@@ -15,23 +15,34 @@ process.on('SIGTERM', signalHandler);
 // TODO(dkorolev): Use a random ID per opened page! In case the page is opened more than once.
 let connectedClients = {};
 
-let htmlContent = '';
-let htmlHash = '';
-let htmlLastModified = 0;
-const htmlPath = '/html/index.html';
+const htmls = {
+  index: '/html/index.html',
+  frame: '/html/frame.html'
+};
 
-const rereadHtml = (lm) => {
-  htmlLastModified = lm;
-  const originalHtmlContent = String(fs.readFileSync(htmlPath));
+const htmlData = {};
+
+Object.keys(htmls).forEach((html) => {
+  htmlData[html] = {
+    content: '',
+    hash: '',
+    lastModified: 0
+  };
+});
+
+const rereadHtml = (html, lm) => {
+  // TODO(dkorolev): Well, the hash needs to be computed differently.
+  htmlData[html].lastModified = lm;
+  const originalHtmlContent = String(fs.readFileSync(htmls[html]));
   const newHtmlHash = crypto.createHash('sha256').update(originalHtmlContent).digest('hex').substr(0, 16);
-  if (newHtmlHash != htmlHash) {
-    if (htmlHash === '') {
-      console.log(`the html sha256 is ${newHtmlHash}`);
+  if (newHtmlHash != htmlData[html].hash) {
+    if (htmlData[html].hash === '') {
+      console.log(`the html sha256 for ${html} is ${newHtmlHash}`);
     } else {
-      console.log(`the html sha256 changed from ${htmlHash} to ${newHtmlHash}`);
+      console.log(`the html sha256 for ${html} changed from ${htmlData[html].hash} to ${newHtmlHash}`);
     }
-    htmlHash = newHtmlHash;
-    htmlContent = originalHtmlContent.replace(/___SHA256___/g, htmlHash);
+    htmlData[html].hash = newHtmlHash;
+    htmlData[html].content = originalHtmlContent.replace(/___SHA256___/g, htmlData[html].hash);
     Object.keys(connectedClients).forEach((k) => {
       console.log(`notifying client ${k}`);
       connectedClients[k].send(JSON.stringify({cmd: 'reload', sha256: newHtmlHash}));
@@ -39,13 +50,21 @@ const rereadHtml = (lm) => {
   }
 };
 
-rereadHtml(fs.statSync(htmlPath).mtimeMs);
+Object.keys(htmls).forEach((html) => {
+  rereadHtml(html, fs.statSync(htmls[html]).mtimeMs);
+});
 
 setInterval(() => {
-  const ts = fs.statSync(htmlPath).mtimeMs;
-  if (ts != htmlLastModified) {
-    rereadHtml(ts);
-  }
+  Object.keys(htmls).forEach((html) => {
+    try {
+      const ts = fs.statSync(htmls[html]).mtimeMs;
+      if (ts != htmlData[html].lastModified) {
+        rereadHtml(html, ts);
+      }
+    } catch (ex) {
+      console.log(`'stat'  failed for '${htmls[html]}'.`);
+    }
+  });
 }, 250);
 
 const httpPort = process.env.ETERNAL_SERVER_HTTP_PORT || 9876;
@@ -54,9 +73,11 @@ const wsPort = process.env.ETERNAL_SERVER_WS_PORT || 9877;
 const app = express();
 app.use(cors({ origin: '*' }));
 
-app.get('/', (_, res) => {
-  res.writeHead(200, {'Content-Type': 'text/html'});
-  res.end(htmlContent);
+Object.keys(htmls).forEach((html) => {
+  app.get('/' + html + '.html', (_, res) => {
+    res.writeHead(200, {'Content-Type': 'text/html'});
+    res.end(htmlData[html].content);
+  });
 });
 
 app.listen(httpPort, () => { console.log(`http listening on localhost:${httpPort}`); });
