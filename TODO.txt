@@ -8,4 +8,5 @@ Env vars for name resolution.
 Two-way pings.
 Handle multiple opened pages on the server side.
 Handle multiple opened pages on the client side.
+Logging and journaling from the server side.
 Wasm, and include it in hot-reloading too.
