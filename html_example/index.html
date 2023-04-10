@@ -1,5 +1,11 @@
 <!doctype html>
-<meta name='referrer' content='no-referrer' />
+
+<head>
+  <title>Eternal</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <meta name='referrer' content='no-referrer' />
+</head>
+
 <body>
   <pre>Version: ___SHA256___</pre>
   <pre><div id='browser'>Browser: ...</div></pre>
@@ -32,7 +38,9 @@
     };
     getPersistedNonce().then((nonce) => {
       document.getElementById('nonce').innerText = 'Nonce: ' + nonce.nonce + (!nonce.cached ? ' (freshly generated)' : '');
-      const ws = new WebSocket('ws://localhost:9877/');
+      // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
+      // const ws = new WebSocket('ws://localhost:9877/');
+      const ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
       ws.onopen = () => {
         pingTime = Date.now();
         ws.send(JSON.stringify({nonce: nonce.nonce, cmd: 'ping', n: ++n, us: navigator.userAgent, ts: pingTime}));

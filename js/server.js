@@ -43,6 +43,8 @@ const rereadHtml = (html, lm) => {
     }
     htmlData[html].hash = newHtmlHash;
     htmlData[html].content = originalHtmlContent.replace(/___SHA256___/g, htmlData[html].hash);
+    // TODO(dkorolev): Retire everything but this `writeFile[sync]`.
+    fs.writeFileSync(`/eternal/${html}.html`, htmlData[html].content);
     Object.keys(connectedClients).forEach((k) => {
       console.log(`notifying client ${k}`);
       connectedClients[k].send(JSON.stringify({cmd: 'reload', sha256: newHtmlHash}));
@@ -73,6 +75,7 @@ const wsPort = process.env.ETERNAL_SERVER_WS_PORT || 9877;
 const app = express();
 app.use(cors({ origin: '*' }));
 
+// TODO(dkorolev): This is going away right after `nginx` is in place.
 Object.keys(htmls).forEach((html) => {
   app.get('/' + html + '.html', (_, res) => {
     res.writeHead(200, {'Content-Type': 'text/html'});

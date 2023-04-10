@@ -1,4 +1,4 @@
-Use `nginx` and `docker`, to serve files.
+Use `nginx` and `docker`, to serve files. NOTE(dkorolev): WIP, need to avoid serving files from `express` now.
 Ping and time skew and page uptime (and page active status) should be on the main page.
 Reloads via the current version.
 Reload by timeout / watchdog / no connection established / page not loaded / etc.

@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+
+  eternal_alpine:
+    container_name: eternal_alpine
+    build: ./js
+    restart: always
+    volumes:
+    - type: volume
+      source: eternal_volume
+      target: /eternal
+    - type: bind
+      source: ./html
+      target: /html
+
+  eternal_nginx:
+    container_name: eternal_nginx
+    build: ./nginx
+    restart: always
+    ports:
+    - 5000:5000
+    volumes:
+    - type: volume
+      source: eternal_volume
+      target: /eternal
+
+volumes:
+  eternal_volume: {}
