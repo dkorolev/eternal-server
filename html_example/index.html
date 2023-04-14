@@ -19,6 +19,11 @@
     let n = 0;
     const version = '___SHA256___';
     document.getElementById('browser').innerText = 'Browser: ' + navigator.userAgent;
+
+    const genRandomString = () => {
+      return crypto.getRandomValues(new Uint32Array(16)).join('-');
+    };
+
     const computeSHA256 = async (text) => {
       view = new DataView(await crypto.subtle.digest('SHA-256', (new TextEncoder('utf-8')).encode(text)));
       let hexes = [];
@@ -27,25 +32,28 @@
       }
       return hexes.join('');
     };
-    let pingTime = 0;
-    const getPersistedNonce = async () => {
+
+    const asyncInitWithRandoms = async () => {
+      const session = await computeSHA256(genRandomString());
       const nonce = localStorage.getItem('NONCE');
       if (nonce !== null) {
-        return {nonce, cached: true};
+        return {nonce, session, cached: true};
       } else {
-        const newNonce = await computeSHA256(crypto.getRandomValues(new Uint32Array(16)).join('-'));
+        const newNonce = await computeSHA256(genRandomString());
         localStorage.setItem('NONCE', newNonce);
-        return {nonce: newNonce, cached: false};
+        return {nonce: newNonce, session, cached: false};
       }
     };
-    getPersistedNonce().then((nonce) => {
-      document.getElementById('nonce').innerText = 'Nonce: ' + nonce.nonce + (!nonce.cached ? ' (freshly generated)' : '');
+
+    let pingTime = 0;
+    asyncInitWithRandoms().then((retval) => {
+      document.getElementById('nonce').innerText = 'Nonce: ' + retval.nonce + (!retval.cached ? ' (freshly generated)' : '');
       // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
       // const ws = new WebSocket('ws://localhost:9877/');
       const ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
       ws.onopen = () => {
         pingTime = Date.now();
-        ws.send(JSON.stringify({nonce: nonce.nonce, cmd: 'ping', n: ++n, us: navigator.userAgent, ts: pingTime}));
+        ws.send(JSON.stringify({nonce: retval.nonce, cmd: 'ping', n: ++n, us: navigator.userAgent, ts: pingTime}));
       };
       ws.onmessage = (e) => {
         try {
