@@ -1,4 +1,4 @@
-const fs = require('fs');
+// const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
@@ -12,9 +12,18 @@ const signalHandler = async (signal) => {
 process.on('SIGINT', signalHandler);
 process.on('SIGTERM', signalHandler);
 
+let shas = process.argv[2];
+if (!(typeof shas === 'string' && shas.length > 0)) {
+  console.log('the first argument should be the shas sum of the data to serve');
+  process.exit(1);
+}
+
+console.log(`shas: ${shas}`);
+
 // TODO(dkorolev): Use a random ID per opened page! In case the page is opened more than once.
 let connectedClients = {};
 
+/*
 const htmls = {
   index: '/html/index.html',
   frame: '/html/frame.html'
@@ -68,19 +77,30 @@ setInterval(() => {
     }
   });
 }, 250);
+*/
 
 const httpPort = process.env.ETERNAL_SERVER_HTTP_PORT || 9876;
 const wsPort = process.env.ETERNAL_SERVER_WS_PORT || 9877;
 
 const app = express();
-app.use(cors({ origin: '*' }));
-
+/*
 // TODO(dkorolev): This is going away right after `nginx` is in place.
+app.use(cors({ origin: '*' }));
 Object.keys(htmls).forEach((html) => {
   app.get('/' + html + '.html', (_, res) => {
     res.writeHead(200, {'Content-Type': 'text/html'});
     res.end(htmlData[html].content);
   });
+});
+*/
+
+app.get('/update', (req, res) => {
+  console.log(`update: ${req.query.shas}`);
+  Object.keys(connectedClients).forEach((k) => {
+    console.log(`notifying client ${k}`);
+    connectedClients[k].send(JSON.stringify({cmd: 'reload', shas: req.query.shas}));
+  });
+  res.end('yay!\n');
 });
 
 app.listen(httpPort, () => { console.log(`http listening on localhost:${httpPort}`); });
@@ -94,6 +114,7 @@ wsServer.on('connection', ws => {
   ws.on('close', () => {
     if (saveNonce !== '') {
       delete connectedClients[saveNonce];
+      console.log('client disconnected');
     }
   });
   ws.on('message', (msg) => {
@@ -102,6 +123,7 @@ wsServer.on('connection', ws => {
       if (json.cmd === 'ping') {
         saveNonce = json.nonce;
         connectedClients[json.nonce] = ws;
+        console.log('client connected');
         ws.send(JSON.stringify({cmd: 'pong', n: json.n, ts: Date.now()}));
       }
     }
