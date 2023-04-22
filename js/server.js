@@ -30,8 +30,12 @@ const app = express();
 app.get('/update', (req, res) => {
   console.log(`update: ${req.query.shas}`);
   Object.keys(connectedClients).forEach((k) => {
-    console.log(`notifying client ${k}`);
-    connectedClients[k].send(JSON.stringify({cmd: 'reload', shas: req.query.shas}));
+    if (connectedClients[k].signature !== req.query.shas) {
+      console.log(`notifying client ${k}`);
+      connectedClients[k].ws.send(JSON.stringify({cmd: 'reload', shas: req.query.shas}));
+    } else {
+      console.log(`client ${k} is already on the right version`);
+    }
   });
   res.end('yay!\n');
 });
@@ -43,21 +47,38 @@ const wsServer = new WebSocket.Server({port: wsPort});
 console.log(`ws listening on localhost:${wsPort}`);
 
 wsServer.on('connection', ws => {
-  let saveNonce = '';
+  let saveVirtue = '';
   ws.on('close', () => {
-    if (saveNonce !== '') {
-      delete connectedClients[saveNonce];
+    if (saveVirtue !== '') {
+      delete connectedClients[saveVirtue];
       console.log('client disconnected');
     }
   });
   ws.on('message', (msg) => {
     const json = JSON.parse(msg);
     if (typeof json === 'object') {
-      if (json.cmd === 'ping') {
-        saveNonce = json.nonce;
-        connectedClients[json.nonce] = ws;
+      if (json.cmd === 'identify') {
+        console.log(`identify: ${json.virtue} -> ${JSON.stringify({cookie: json.cookie, ua: json.ua})}`);
+        saveVirtue = json.virtue;
+        connectedClients[json.virtue] = {
+          ws,
+          signature: null
+        };
         console.log('client connected');
+      } else if (json.cmd == 'signature') {
+        console.log(`signature: ${json.virtue} => ${json.signature}`);
+        // NOTE(dkorolev): Invariant: `identify` should always come before `signature`. But we're liberal.
+        if (!(json.virtue in connectedClients)) {
+          connectedClients[json.virtue] = {
+            ws,
+            signature: null,
+          };
+        };
+        connectedClients[json.virtue].signature = json.signature;
+      } else if (json.cmd === 'ping') {
         ws.send(JSON.stringify({cmd: 'pong', n: json.n, ts: Date.now()}));
+      } else {
+        console.log(`unknown command: '${json.cmd}'`);
       }
     }
   });

@@ -7,18 +7,29 @@
 </head>
 
 <body>
-  <pre><div id='browser'>Browser: ...</div></pre>
-  <pre><div id='nonce'>Nonce: ...</div></pre>
   <h3>This content is outside the IFRAME</h3>
   Custom text outside the IFRAME.
   <iframe id='dynamic_iframe' src='/frame.html' frameborder=0 width=100% height=10000px title='Dynamic Content'></iframe>
   <script>
-    let iframeSignature = null;
-    window.document.addEventListener('signatureFromIFrame', (e) => { iframeSignature = e.detail.signature; }, false);
-
     let n = 0;
+
+    let connectedWs = null;
+    const token = {
+      virtue: null,
+      cookie: null,
+    };
+
+    let iframeSignature = null;
+    let wsSentIframeSignature = null;
+    window.document.addEventListener('signatureFromIFrame', (e) => {
+      iframeSignature = e.detail.signature;
+      if (connectedWs && token.virtue && token.cookie && iframeSignature !== wsSentIframeSignature) {
+        connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
+        wsSentIframeSignature = iframeSignature;
+      }
+    }, false);
+
     const version = '___SHA256___';
-    document.getElementById('browser').innerText = 'Browser: ' + navigator.userAgent;
 
     const genRandomString = () => {
       return crypto.getRandomValues(new Uint32Array(16)).join('-');
@@ -34,27 +45,37 @@
     };
 
     const asyncInitWithRandoms = async () => {
-      const session = await computeSHA256(genRandomString());
-      const nonce = localStorage.getItem('NONCE');
-      if (nonce !== null) {
-        return {nonce, session, cached: true};
+      const virtue = await computeSHA256(genRandomString());
+      const cookie = localStorage.getItem('NONCE');
+      if (cookie !== null) {
+        return {virtue, cookie, cached: true};
       } else {
-        const newNonce = await computeSHA256(genRandomString());
-        localStorage.setItem('NONCE', newNonce);
-        return {nonce: newNonce, session, cached: false};
+        const newCookie = await computeSHA256(genRandomString());
+        localStorage.setItem('NONCE', newCookie);
+        return {virtue, cookie: newCookie, cached: false};
       }
     };
 
     let pingTime = 0;
     asyncInitWithRandoms().then((retval) => {
-      document.getElementById('nonce').innerText = 'Nonce: ' + retval.nonce + (!retval.cached ? ' (freshly generated)' : '');
+      token.virtue = retval.virtue;
+      token.cookie = retval.cookie;
+
       // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
-      // const ws = new WebSocket('ws://localhost:9877/');
       const ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
+
       ws.onopen = () => {
-        pingTime = Date.now();
-        ws.send(JSON.stringify({nonce: retval.nonce, cmd: 'ping', n: ++n, us: navigator.userAgent, ts: pingTime}));
+        ws.send(JSON.stringify({virtue: token.virtue, cmd: 'identify', cookie: token.cookie, ua: navigator.userAgent}));
+        // pingTime = Date.now();
+        // ws.send(JSON.stringify({virtue: token.virtue, cookie: token.cookie, cmd: 'ping', n: ++n, ua: navigator.userAgent, ts: pingTime}));
+        connectedWs = ws;
+        if (iframeSignature && iframeSignature !== wsSentIframeSignature) {
+          console.log('DIMA2');
+          connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
+          wsSentIframeSignature = iframeSignature;
+        }
       };
+
       ws.onmessage = (e) => {
         try {
           const json = JSON.parse(e.data);
