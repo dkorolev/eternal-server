@@ -12,6 +12,8 @@
   <iframe id='dynamic_iframe' src='/frame.html' frameborder=0 width=100% height=10000px title='Dynamic Content'></iframe>
   <script>
     let n = 0;
+    let lastPingN = null;
+    let lastPingTs = null;
 
     let connectedWs = null;
     const token = {
@@ -62,18 +64,35 @@
       token.cookie = retval.cookie;
 
       // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
-      const ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
+      let ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
 
       ws.onopen = () => {
+        const sendPing = () => {
+          lastPingN = ++n;
+          lastPingTs = Date.now();
+          ws.send(JSON.stringify({cmd: 'ping', n: lastPingN, ts: lastPingTs}));
+        };
         ws.send(JSON.stringify({virtue: token.virtue, cmd: 'identify', cookie: token.cookie, ua: navigator.userAgent}));
         // pingTime = Date.now();
         // ws.send(JSON.stringify({virtue: token.virtue, cookie: token.cookie, cmd: 'ping', n: ++n, ua: navigator.userAgent, ts: pingTime}));
         connectedWs = ws;
         if (iframeSignature && iframeSignature !== wsSentIframeSignature) {
-          console.log('DIMA2');
           connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
           wsSentIframeSignature = iframeSignature;
         }
+        sendPing();
+        const intervalNonce = setInterval(() => {
+          if (ws) {
+            sendPing();
+          } else {
+            clearInterval(intervalNonce);
+          }
+        }, 5000);
+      };
+
+      ws.onclose = () => {
+        console.log('websocket closed');
+        ws = null;
       };
 
       ws.onmessage = (e) => {
@@ -82,7 +101,13 @@
           if (typeof json === 'object') {
             if (json.cmd === 'pong') {
               const now = Date.now();
-              console.log(`Ping: ${now - pingTime}ms, time skew: ${json.ts - pingTime}ms.`);
+              if (json.n === lastPingN) {
+                console.log(`Ping: ${Date.now() - lastPingTs}ms`);
+              } else {
+                console.log(`Received an out-of-order ping reply, ${json.n} != ${lastPingN}.`);
+              }
+            } else if (json.cmd === 'sping') {
+              ws.send(JSON.stringify({cmd: 'spong', m: json.m, ts: Date.now()}));
             } else if (json.cmd === 'reload') {
               iframeSignature = null;
               const f = document.getElementById('dynamic_iframe');

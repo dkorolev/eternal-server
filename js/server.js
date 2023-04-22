@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 const crypto = require('node:crypto');
 
 const signalHandler = async (signal) => {
-  console.log(`\ngot signal: ${signal}`);
+  console.log(`\ncaught signal: ${signal}`);
   process.exit(signal);
 };
 
@@ -13,7 +13,7 @@ process.on('SIGTERM', signalHandler);
 
 let shas = process.argv[2];
 if (!(typeof shas === 'string' && shas.length > 0)) {
-  console.log('the first argument should be the shas sum of the data to serve');
+  console.log('the first argument should be the shas sum of the content to serve');
   process.exit(1);
 }
 
@@ -60,26 +60,50 @@ wsServer.on('connection', ws => {
       if (json.cmd === 'identify') {
         console.log(`identify: ${json.virtue} -> ${JSON.stringify({cookie: json.cookie, ua: json.ua})}`);
         saveVirtue = json.virtue;
-        connectedClients[json.virtue] = {
+        const v = {
           ws,
+          m: 0,
           signature: null
         };
+        connectedClients[json.virtue] = v;
         console.log('client connected');
+        v.lastPingTs = Date.now();
+        v.ws.send(JSON.stringify({cmd: 'sping', m: ++v.m, ts: v.lastPingTs}));
       } else if (json.cmd == 'signature') {
         console.log(`signature: ${json.virtue} => ${json.signature}`);
         // NOTE(dkorolev): Invariant: `identify` should always come before `signature`. But we're liberal.
         if (!(json.virtue in connectedClients)) {
           connectedClients[json.virtue] = {
             ws,
+            m: 0,
             signature: null,
           };
         };
         connectedClients[json.virtue].signature = json.signature;
       } else if (json.cmd === 'ping') {
         ws.send(JSON.stringify({cmd: 'pong', n: json.n, ts: Date.now()}));
+      } else if (json.cmd === 'spong') {
+        if (saveVirtue !== '') {
+          const v = connectedClients[saveVirtue];
+          if (json.m === v.m) {
+            console.log(`received an 'spong' from ${saveVirtue}, sping=${Date.now() - v.lastPingTs}ms`);
+          } else {
+            console.log(`received an out of order 'spong', ${json.m} != ${v.m}`);
+          }
+          } else {
+            console.log(`received an 'spong' from an unidentified client`);
+          }
       } else {
         console.log(`unknown command: '${json.cmd}'`);
       }
     }
   });
 });
+
+setInterval(() => {
+  Object.keys(connectedClients).forEach((k) => {
+    const v = connectedClients[k];
+    v.lastPingTs = Date.now();
+    v.ws.send(JSON.stringify({cmd: 'sping', m: ++v.m, ts: v.lastPingTs}));
+  });
+}, 5000);
