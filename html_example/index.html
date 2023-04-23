@@ -10,7 +10,9 @@
 <body style='margin:0px;padding:0px;overflow:hidden'>
   <table cellpadding=10px cellspacing=0 border=0 style='position:absolute; height:100%; width:100%;' />
     <tr height=1 bgcolor=lightgrey>
-      <td align=right>Eternal server | v0.1</td>
+      <td align=right>
+        eternal server
+      </td>
     </tr>
     <tr height=100%>
       <td valign=top style='margin:0px;padding:7px;overflow:hidden'>
@@ -18,14 +20,44 @@
       </td>
     </tr>
     <tr height=1 bgcolor=lightgrey>
-      <td align=right>Inner frame | blah</td>
+      <td align=right>
+        <!-- aInner frame | signature <div id='signature'>...</div> | ping <div id='ping'>...</div> | up <div id='uptimeFrame'>...</div> | keepalive <div id='keepalive'>...</div> -->
+        <div id='status'>...</div>
+      </td>
     </tr>
   </table>
 
   <script>
+    let statusDiv = document.getElementById('status');
+    let statusText = statusDiv.innerText;
+
+    const updateStatusText = (newText) => {
+      if (newText !== statusText) {
+        statusDiv.innerText = newText;
+        statusText = newText;
+      }
+    };
+
+    let iframeSignature = '...';
+
+    let pageLoadTime = Date.now();
+    let iframeSignatureTime = Date.now();
+    let currentPing = null;
+    let lastPingSentTs = null;
+    let lastPingReceivedTs = null;
+
+    const updateStatus = () => {
+      let now = Date.now();
+      if (now < pageLoadTime) {
+        pageLoadTime = now;
+      }
+      updateStatusText(`code ${iframeSignature} | ping ${currentPing}ms | opened ${Math.floor(1e-3 * (now - pageLoadTime))}s | updated ${Math.floor(1e-3 * (now - iframeSignatureTime))}s`);
+    };
+
+    setInterval(updateStatus, 1000);
+
     let n = 0;
     let lastPingN = null;
-    let lastPingTs = null;
 
     let connectedWs = null;
     const token = {
@@ -33,10 +65,10 @@
       cookie: null,
     };
 
-    let iframeSignature = null;
     let wsSentIframeSignature = null;
     window.document.addEventListener('signatureFromIFrame', (e) => {
       iframeSignature = e.detail.signature;
+      iframeSignatureTime = Date.now();
       if (connectedWs && token.virtue && token.cookie && iframeSignature !== wsSentIframeSignature) {
         connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
         wsSentIframeSignature = iframeSignature;
@@ -81,8 +113,8 @@
       ws.onopen = () => {
         const sendPing = () => {
           lastPingN = ++n;
-          lastPingTs = Date.now();
-          ws.send(JSON.stringify({cmd: 'ping', n: lastPingN, ts: lastPingTs}));
+          lastPingSentTs = Date.now();
+          ws.send(JSON.stringify({cmd: 'ping', n: lastPingN, ts: lastPingSentTs}));
         };
         ws.send(JSON.stringify({virtue: token.virtue, cmd: 'identify', cookie: token.cookie, ua: navigator.userAgent}));
         // pingTime = Date.now();
@@ -114,7 +146,9 @@
             if (json.cmd === 'pong') {
               const now = Date.now();
               if (json.n === lastPingN) {
-                console.log(`Ping: ${Date.now() - lastPingTs}ms`);
+                currentPing = now - lastPingSentTs;
+                lastPingReceivedTs = now;
+                updateStatus();
               } else {
                 console.log(`Received an out-of-order ping reply, ${json.n} != ${lastPingN}.`);
               }

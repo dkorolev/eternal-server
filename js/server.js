@@ -81,6 +81,7 @@ wsServer.on('connection', ws => {
         };
         connectedClients[json.virtue].signature = json.signature;
       } else if (json.cmd === 'ping') {
+        console.log(`received a 'ping' from ${saveVirtue || 'unidentified client'}`);
         ws.send(JSON.stringify({cmd: 'pong', n: json.n, ts: Date.now()}));
       } else if (json.cmd === 'spong') {
         if (saveVirtue !== '') {
