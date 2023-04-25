@@ -19,7 +19,7 @@ services:
     build: ./nginx
     # restart: always
     ports:
-    - 5000:5000
+    - 4000:4000
     volumes:
     - type: volume
       source: eternal_volume

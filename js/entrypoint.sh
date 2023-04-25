@@ -26,6 +26,8 @@ trap cb_sigquit SIGQUIT
 
 cp /html/favicon.ico /eternal
 cp /html/index.html /eternal
+cp /html/starting.html /eternal
+cp /html/loading.html /eternal
 
 RETVAL_STAT=""
 function recompute_stat()

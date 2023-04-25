@@ -2,34 +2,38 @@
 
 <head>
   <title>Eternal</title>
-  <link rel='icon' type='image/x-icon' href='/favicon.ico'>
-  <meta name='referrer' content='no-referrer' />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <meta name="referrer" content="no-referrer" />
 </head>
 
-
-<body style='margin:0px;padding:0px;overflow:hidden'>
-  <table cellpadding=10px cellspacing=0 border=0 style='position:absolute; height:100%; width:100%;' />
+<body style="margin:0px;padding:0px;overflow:hidden">
+  <table cellpadding=10px cellspacing=0 border=0 style="position:absolute; height:100%; width:100%;" />
     <tr height=1 bgcolor=lightgrey>
       <td align=right>
-        eternal server
+        <div id="top_status">eternal server</div>
       </td>
     </tr>
     <tr height=100%>
-      <td valign=top style='margin:0px;padding:7px;overflow:hidden'>
-        <iframe id='dynamic_iframe' src='/frame.html' frameborder=0 width='100%' height='100%' title='Dynamic Content'></iframe>
+      <td valign=top style="margin:0px;padding:7px;overflow:hidden">
+        <iframe id="dynamic_iframe" src="/starting.html" frameborder=0 width="100%" height="100%" title="Dynamic Content"></iframe>
       </td>
     </tr>
     <tr height=1 bgcolor=lightgrey>
       <td align=right>
-        <!-- aInner frame | signature <div id='signature'>...</div> | ping <div id='ping'>...</div> | up <div id='uptimeFrame'>...</div> | keepalive <div id='keepalive'>...</div> -->
-        <div id='status'>...</div>
+        <div id="status">...</div>
       </td>
     </tr>
   </table>
 
   <script>
-    let statusDiv = document.getElementById('status');
+    const dynamicIframeControl = document.getElementById("dynamic_iframe");
+
+    const statusDiv = document.getElementById("status");
+    const topStatusDiv = document.getElementById("top_status");
+
     let statusText = statusDiv.innerText;
+
+    let dynamicContentLastKeepalive = null;
 
     const updateStatusText = (newText) => {
       if (newText !== statusText) {
@@ -38,7 +42,7 @@
       }
     };
 
-    let iframeSignature = '...';
+    let iframeSignature = "...";
 
     let pageLoadTime = Date.now();
     let iframeSignatureTime = Date.now();
@@ -51,7 +55,23 @@
       if (now < pageLoadTime) {
         pageLoadTime = now;
       }
-      updateStatusText(`code ${iframeSignature} | ping ${currentPing}ms | opened ${Math.floor(1e-3 * (now - pageLoadTime))}s | updated ${Math.floor(1e-3 * (now - iframeSignatureTime))}s`);
+
+      if(dynamicContentLastKeepalive) {
+        if (now - dynamicContentLastKeepalive > 15000) {
+          topStatusDiv.innerText = "eternal server | timed out";
+          dynamicIframeControl.src = "/loading.html";
+        } else if (now - dynamicContentLastKeepalive > 10000) {
+          topStatusDiv.innerText = "eternal server | reconnecting";
+        } else {
+          topStatusDiv.innerText = "eternal server | live " + iframeSignature;
+        }
+      }
+
+      updateStatusText(`ping ${currentPing}ms | opened ${Math.floor(1e-3 * (now - pageLoadTime))}s | updated ${Math.floor(1e-3 * (now - iframeSignatureTime))}s`);
+
+      if (tmpWs === null) {
+        openWebsocket();
+      }
     };
 
     setInterval(updateStatus, 1000);
@@ -59,45 +79,127 @@
     let n = 0;
     let lastPingN = null;
 
-    let connectedWs = null;
+    let tmpWs = null;
+
+    const openWebsocket = () => {
+      wsSentIframeSignature = null;
+
+      // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
+      let ws = new WebSocket("ws://localhost:4000/_next/webpack-hmr");
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({virtue: token.virtue, cmd: "identify", cookie: token.cookie, ua: navigator.userAgent}));
+        tmpWs = ws;
+
+        if (iframeSignature && iframeSignature !== wsSentIframeSignature) {
+          tmpWs.send(JSON.stringify({virtue: token.virtue, cmd: "signature", n: ++n, signature: iframeSignature}));
+          wsSentIframeSignature = iframeSignature;
+        }
+
+        const sendPing = () => {
+          lastPingN = ++n;
+          lastPingSentTs = Date.now();
+          ws.send(JSON.stringify({cmd: "ping", n: lastPingN, ts: lastPingSentTs}));
+        };
+        sendPing();
+        const intervalNonce = setInterval(() => {
+            if (tmpWs && tmpWs.readyState === 1) {
+            sendPing();
+          } else {
+            tmpWs = null;
+            clearInterval(intervalNonce);
+          }
+        }, 4000);
+      };
+
+      ws.onclose = () => {
+        console.log("websocket closed");
+        tmpWs = null;
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const json = JSON.parse(e.data);
+          if (typeof json === "object") {
+            if (json.cmd === "pong") {
+              const now = Date.now();
+              if (json.n === lastPingN) {
+                currentPing = now - lastPingSentTs;
+                lastPingReceivedTs = now;
+                updateStatus();
+              } else {
+                console.log(`Received an out-of-order ping reply, ${json.n} != ${lastPingN}.`);
+              }
+            } else if (json.cmd === "sping") {
+              ws.send(JSON.stringify({cmd: "spong", m: json.m, ts: Date.now()}));
+            } else if (json.cmd === "reload") {
+              iframeSignature = null;
+              dynamicIframeControl.src = "/loading.html";
+            }
+          }
+        } catch (ex) {
+          console.log(`Malformed message from server: ${JSON.stringify(e.data)}.`);
+        }
+      }
+    };
+
+    const sendIntoWebsocket = (data) => {
+      if (tmpWs && tmpWs.readyState === 1) {
+        tmpWs.send(JSON.stringify(data));
+        return;
+      }
+      tmpWs = null;
+    };
+
     const token = {
       virtue: null,
       cookie: null,
     };
 
+    window.document.addEventListener("loadingFrameLoaded", (e) => {
+      topStatusDiv.innerText = "eternal server | loading ...";
+      dynamicIframeControl.src = "/frame.html";
+    }, false);
+
     let wsSentIframeSignature = null;
-    window.document.addEventListener('signatureFromIFrame', (e) => {
+    window.document.addEventListener("signatureFromIFrame", (e) => {
       iframeSignature = e.detail.signature;
+      dynamicContentLastKeepalive = Date.now();
+      topStatusDiv.innerText = "eternal server | connected";
       iframeSignatureTime = Date.now();
-      if (connectedWs && token.virtue && token.cookie && iframeSignature !== wsSentIframeSignature) {
-        connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
+      if (tmpWs && tmpWs.readyState === 1 && token.virtue && token.cookie && iframeSignature !== wsSentIframeSignature) {
+        sendIntoWebsocket({virtue: token.virtue, cmd: "signature", n: ++n, signature: iframeSignature});
         wsSentIframeSignature = iframeSignature;
       }
     }, false);
 
-    const version = '___SHA256___';
+    window.document.addEventListener("keepaliveFromIFrame", (e) => {
+      dynamicContentLastKeepalive = Date.now();
+    });
+
+    // const TODO_DIMA_REMOVE_THIS_version = "___SHA256___";
 
     const genRandomString = () => {
-      return crypto.getRandomValues(new Uint32Array(16)).join('-');
+      return crypto.getRandomValues(new Uint32Array(16)).join("-");
     };
 
     const computeSHA256 = async (text) => {
-      view = new DataView(await crypto.subtle.digest('SHA-256', (new TextEncoder('utf-8')).encode(text)));
+      view = new DataView(await crypto.subtle.digest("SHA-256", (new TextEncoder("utf-8")).encode(text)));
       let hexes = [];
       for (let i = 0; i < view.byteLength && i < 8; i += 4) {
-        hexes.push(('00000000' + view.getUint32(i).toString(16)).slice(-8));
+        hexes.push(("00000000" + view.getUint32(i).toString(16)).slice(-8));
       }
-      return hexes.join('');
+      return hexes.join("");
     };
 
     const asyncInitWithRandoms = async () => {
       const virtue = await computeSHA256(genRandomString());
-      const cookie = localStorage.getItem('NONCE');
+      const cookie = localStorage.getItem("NONCE");
       if (cookie !== null) {
         return {virtue, cookie, cached: true};
       } else {
         const newCookie = await computeSHA256(genRandomString());
-        localStorage.setItem('NONCE', newCookie);
+        localStorage.setItem("NONCE", newCookie);
         return {virtue, cookie: newCookie, cached: false};
       }
     };
@@ -107,63 +209,10 @@
       token.virtue = retval.virtue;
       token.cookie = retval.cookie;
 
-      // TODO(dkorolev): This has to come from an env var, replaced in a way similar to `___SHA256___`.
-      let ws = new WebSocket('ws://localhost:5000/_next/webpack-hmr');
-
-      ws.onopen = () => {
-        const sendPing = () => {
-          lastPingN = ++n;
-          lastPingSentTs = Date.now();
-          ws.send(JSON.stringify({cmd: 'ping', n: lastPingN, ts: lastPingSentTs}));
-        };
-        ws.send(JSON.stringify({virtue: token.virtue, cmd: 'identify', cookie: token.cookie, ua: navigator.userAgent}));
-        // pingTime = Date.now();
-        // ws.send(JSON.stringify({virtue: token.virtue, cookie: token.cookie, cmd: 'ping', n: ++n, ua: navigator.userAgent, ts: pingTime}));
-        connectedWs = ws;
-        if (iframeSignature && iframeSignature !== wsSentIframeSignature) {
-          connectedWs.send(JSON.stringify({virtue: token.virtue, cmd: 'signature', n: ++n, signature: iframeSignature}));
-          wsSentIframeSignature = iframeSignature;
-        }
-        sendPing();
-        const intervalNonce = setInterval(() => {
-          if (ws) {
-            sendPing();
-          } else {
-            clearInterval(intervalNonce);
-          }
-        }, 5000);
-      };
-
-      ws.onclose = () => {
-        console.log('websocket closed');
-        ws = null;
-      };
-
-      ws.onmessage = (e) => {
-        try {
-          const json = JSON.parse(e.data);
-          if (typeof json === 'object') {
-            if (json.cmd === 'pong') {
-              const now = Date.now();
-              if (json.n === lastPingN) {
-                currentPing = now - lastPingSentTs;
-                lastPingReceivedTs = now;
-                updateStatus();
-              } else {
-                console.log(`Received an out-of-order ping reply, ${json.n} != ${lastPingN}.`);
-              }
-            } else if (json.cmd === 'sping') {
-              ws.send(JSON.stringify({cmd: 'spong', m: json.m, ts: Date.now()}));
-            } else if (json.cmd === 'reload') {
-              iframeSignature = null;
-              const f = document.getElementById('dynamic_iframe');
-              f.src = f.src;
-            }
-          }
-        } catch (ex) {
-          console.log(`Malformed message from server: ${JSON.stringify(e.data)}.`);
-        }
-      }
+      setTimeout(() => {
+        dynamicIframeControl.src = "/loading.html";
+        openWebsocket();
+      }, 1500);
     });
   </script>
 </body>

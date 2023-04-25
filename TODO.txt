@@ -1,4 +1,4 @@
-Reload by timeout / watchdog / no connection established / page not loaded / etc.
+Refactor, and make it into a single `setInterval`, I hope.
 Track the IP address of connected clients; perhaps even their locations.
 Env vars for name resolution.
 Logging and journaling from the server side.

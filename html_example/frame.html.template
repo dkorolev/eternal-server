@@ -2,6 +2,7 @@
 <meta name='referrer' content='no-referrer' />
 <script>
   window.top.document.dispatchEvent(new CustomEvent('signatureFromIFrame', {detail:{signature: '___SHA256___'}}));
+  setInterval(() => { window.top.document.dispatchEvent(new CustomEvent('keepaliveFromIFrame')); }, 1000);
 </script>
 <body style='margin:0px;padding:0px'>
   <pre>Version: ___SHA256___</pre>
